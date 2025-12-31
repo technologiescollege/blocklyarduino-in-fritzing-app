@@ -38,6 +38,11 @@ along with Fritzing.  If not, see <http://www.gnu.org/licenses/>.
 #include <QStyle>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QIcon>
+#include <QPixmap>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 
 static const QChar Quote91Char(0x91);
 static QString UnableToProgramMessage;
@@ -50,6 +55,95 @@ SerialPortComboBox::SerialPortComboBox() : QComboBox() {
 void SerialPortComboBox::showPopup() {
 	Q_EMIT aboutToShow();
 	QComboBox::showPopup();
+}
+
+/////////////////////////////////////////
+// BlocksToolButton implementation
+
+BlocksToolButton::BlocksToolButton(QWidget *parent, QAction* defaultAction)
+	: SketchToolButton("Blocks", parent, defaultAction)
+{
+	// Vérifier si Blockly est installé
+	QString appDirPath = QCoreApplication::applicationDirPath();
+	QDir appDir(appDirPath);
+	QString blocklyPath = appDir.absoluteFilePath("blockly");
+	QString indexHtmlPath = QDir(blocklyPath).absoluteFilePath("index.html");
+	QFileInfo fileInfo(indexHtmlPath);
+	m_blocklyInstalled = fileInfo.exists() && fileInfo.isFile();
+	
+	// Les icônes sont configurées dans setupIcons() qui est appelé par le constructeur parent
+	// Appeler updateIconState() pour configurer les icônes après la construction
+	updateIconState();
+}
+
+void BlocksToolButton::setupIcons(const QString &imageName, bool hasStates)
+{
+	// Appeler la méthode parente pour configurer la taille et le style
+	SketchToolButton::setupIcons(imageName, false); // false = pas d'états par défaut
+	
+	// Configurer les icônes personnalisées
+	updateIconState();
+}
+
+void BlocksToolButton::updateBlocklyInstallationState()
+{
+	updateIconState();
+}
+
+void BlocksToolButton::updateIconState()
+{
+	// Vérifier si Blockly est installé
+	QString appDirPath = QCoreApplication::applicationDirPath();
+	QDir appDir(appDirPath);
+	QString blocklyPath = appDir.absoluteFilePath("blockly");
+	QString indexHtmlPath = QDir(blocklyPath).absoluteFilePath("index.html");
+	QFileInfo fileInfo(indexHtmlPath);
+	m_blocklyInstalled = fileInfo.exists() && fileInfo.isFile();
+	
+	// Configurer les icônes selon l'état d'installation
+	// Note: m_enabledImage, m_disabledImage, m_pressedImage sont des membres protégés de AbstractStatesButton
+	// que nous pouvons accéder car BlocksToolButton hérite de SketchToolButton qui hérite de AbstractStatesButton
+	if (m_blocklyInstalled) {
+		m_enabledImage = QPixmap(":/resources/images/icons/TabWidgetBlocksActive_icon.png");
+	} else {
+		m_enabledImage = QPixmap(":/resources/images/icons/TabWidgetBlocksInactive_icon.png");
+	}
+	
+	m_disabledImage = QPixmap(":/resources/images/icons/TabWidgetBlocksInactive_icon.png");
+	m_pressedImage = QPixmap(":/resources/images/icons/TabWidgetBlocksPressed_icon.png");
+	
+	// Mettre à jour l'action du menu pour qu'elle soit la source de vérité
+	// Le bouton suivra automatiquement l'état de l'action grâce à actionEvent()
+	QAction* action = defaultAction();
+	if (action != nullptr) {
+		action->setEnabled(m_blocklyInstalled);
+		// Après avoir mis à jour l'action, vérifier son état pour déterminer quelle icône utiliser
+		// Le bouton devrait maintenant refléter l'état de l'action
+		if (action->isEnabled()) {
+			setEnabledIcon();
+		} else {
+			setDisabledIcon();
+		}
+	} else {
+		// Si pas d'action, mettre à jour le bouton directement
+		if (m_blocklyInstalled) {
+			setEnabledIcon();
+		} else {
+			setDisabledIcon();
+		}
+	}
+}
+
+void BlocksToolButton::mousePressEvent(QMouseEvent *event)
+{
+	setPressedIcon();
+	QToolButton::mousePressEvent(event);
+}
+
+void BlocksToolButton::mouseReleaseEvent(QMouseEvent *event)
+{
+	setEnabledIcon();
+	QToolButton::mouseReleaseEvent(event);
 }
 
 QPixmap getLargeStandardIcon(QStyle::StandardPixmap standardIcon) {
@@ -241,6 +335,7 @@ void ProgramTab::showEvent(QShowEvent *event) {
 	QFrame::showEvent(event);
 	m_textEdit->setFocus();
 	updateMenu();
+	updateBlocksButtonState();
 }
 
 
@@ -263,6 +358,11 @@ void ProgramTab::initMenus() {
 	m_saveButton->setObjectName("saveCodeButton");
 	m_saveButton->setEnabledIcon();					// seems to need this to display button icon first time
 	m_leftButtonsContainer->addWidget(m_saveButton);
+
+	m_blocksButton = new BlocksToolButton(this, m_programWindow->m_blocksAction);
+	m_blocksButton->setText(tr("Blocks"));
+	m_blocksButton->setObjectName("blocksButton");
+	m_leftButtonsContainer->addWidget(m_blocksButton);
 
 	// Platform selection
 
@@ -461,6 +561,10 @@ void ProgramTab::setBoard(const QString & newBoard) {
 void ProgramTab::setBoard(int index) {
 	QString newBoard = m_boardComboBox->itemText(index);
 	setBoard(newBoard);
+}
+
+QString ProgramTab::board() const {
+	return m_board;
 }
 
 bool ProgramTab::loadProgramFile() {
@@ -707,7 +811,9 @@ void ProgramTab::print(QPrinter &printer) {
 }
 
 void ProgramTab::setText(QString text) {
-	m_textEdit->setPlainText(text);
+	// Utiliser setText() exactement comme dans loadProgramFile() (ligne 628)
+	// pour être cohérent avec le reste du code
+	m_textEdit->setText(text);
 }
 
 QString ProgramTab::text() {
@@ -903,4 +1009,11 @@ void ProgramTab::enableProgramButton() {
 void ProgramTab::appendToConsole(const QString & text)
 {
 	m_console->appendPlainText(text);
+}
+
+void ProgramTab::updateBlocksButtonState()
+{
+	if (m_blocksButton != nullptr) {
+		m_blocksButton->updateBlocklyInstallationState();
+	}
 }
